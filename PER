@@ -647,11 +647,8 @@ end
 
 local function FormatNumber(n)
 	if type(n) ~= 'number' then return tostring(n or '?') end
-	local rounded = math.floor(n + 0.5)
-	if math.abs(n - rounded) < 0.05 then
-		return tostring(rounded)
-	end
-	return string.format('%.1f', n)
+	-- always whole numbers (2.34 -> 2, 100.0 -> 100, 704.4 -> 704)
+	return tostring(math.floor(n + 0.5))
 end
 
 local function CleanNPCName(name)
@@ -666,6 +663,10 @@ end
 function GetPlayerInfoString(Player)
 	local parts = {}
 	local stats = Player:FindFirstChild('Stats')
+	if not stats then
+		local char = GetCharacter(Player)
+		if char then stats = char:FindFirstChild('Stats') end
+	end
 	if not stats then return '' end
 
 	-- Clan / Race
@@ -696,18 +697,20 @@ function GetPlayerInfoString(Player)
 		end
 	end
 
-	-- Kyoshin (Bankai / Segunda / Vollstandig / Twin Soul)
+	-- Kyoshin (Bankai / Segunda / Vollstandig / Twin Soul) with %
 	local kyoshin = SafeGetValue(stats:FindFirstChild('Kyoshin'))
 	if kyoshin ~= nil and tostring(kyoshin) ~= '' then
 		local label = GetKyoshinLabel(race)
-		table.insert(parts, string.format('[%s: %s]', label, tostring(kyoshin)))
+		local kStr = type(kyoshin) == 'number' and (FormatNumber(kyoshin) .. '%') or (tostring(kyoshin) .. '%')
+		table.insert(parts, string.format('[%s: %s]', label, kStr))
 	end
 
-	-- Vizard (AltKyoshin) only for Soul Reaper or Unknown
+	-- Vizard (AltKyoshin) only for Soul Reaper or Unknown, with %
 	if race == 'Soul Reaper' or race == 'Unknown' then
 		local alt = SafeGetValue(stats:FindFirstChild('AltKyoshin'))
 		if alt ~= nil and tostring(alt) ~= '' then
-			table.insert(parts, string.format('[Vizard: %s]', tostring(alt)))
+			local aStr = type(alt) == 'number' and (FormatNumber(alt) .. '%') or (tostring(alt) .. '%')
+			table.insert(parts, string.format('[Vizard: %s]', aStr))
 		end
 	end
 
@@ -910,11 +913,11 @@ Options('ShowNPCs', 'Show NPCs', true);
 Options('VisCheck', 'Visibility Check', false);
 Options('TextOutline', 'Text Outline', true);
 Options('Rainbow', 'Rainbow Mode', true);
-Options('TextSize', 'Text Size', syn and 24 or 24, 14, 30); -- cuz synapse fonts look weird???
-Options('MaxDistance', 'Player Max Distance', 25000, 100, 2500);
-Options('NPCMaxDistance', 'NPC Max Distance', 2500, 100, 2500);
+Options('TextSize', 'Player Text Size', syn and 24 or 18, 10, 30);
+Options('NPCTextSize', 'NPC Text Size', syn and 18 or 14, 10, 24);
+Options('MaxDistance', 'Player Max Distance', 25000, 100, 25000);
+Options('NPCMaxDistance', 'NPC Max Distance', 2500, 100, 25000);
 Options('RefreshRate', 'Refresh Rate (ms)', 5, 1, 200);
-Options('YOffset', 'Y Offset', 0, -200, 200);
 Options('MenuKey', 'Menu Key', Enum.KeyCode.F4, 1);
 Options('ToggleKey', 'Toggle Key', Enum.KeyCode.F3, 1);
 Options('ChangeColors', SENTINEL_LOADED and 'Sentinel Unsupported' or 'Change Colors', function()
@@ -2517,7 +2520,7 @@ local function UpdatePlayerData()
 					OutlineTracer.Visible = false;
 					
 					if ScreenPosition.Z > 0 then
-						local ScreenPositionUpper	= WorldToViewport((HumanoidRootPart:GetRenderCFrame() * CFrame.new(0, Head.Size.Y + HumanoidRootPart.Size.Y + (Options.YOffset.Value / 25), 0)).Position);
+						local ScreenPositionUpper	= WorldToViewport((HumanoidRootPart:GetRenderCFrame() * CFrame.new(0, Head.Size.Y + HumanoidRootPart.Size.Y + (100 / 25), 0)).Position);
 						local Scale					= Head.Size.Y / 2;
 						local basePos = V2New(ScreenPositionUpper.X, ScreenPositionUpper.Y);
 						local yCursor = 0;
@@ -2643,12 +2646,18 @@ local function UpdatePlayerData()
 			shared.InstanceData[v.Name] = Data;
 		end
 
-		-- NPC ESP (workspace.Live)
+		-- NPC ESP (workspace.Live) — skip anything that is a real Player character
 		if Options.ShowNPCs.Value then
 			local Live = workspace:FindFirstChild('Live')
 			if Live then
+				local npcTextSize = (Options.NPCTextSize and Options.NPCTextSize.Value) or 14
 				for _, npc in pairs(Live:GetChildren()) do
 					if not npc:IsA('Model') then continue end
+
+					-- CRITICAL: if this model belongs to a Player, skip it (handled by player ESP)
+					local owningPlayer = Players:GetPlayerFromCharacter(npc)
+					if owningPlayer then continue end
+
 					local Humanoid = npc:FindFirstChildOfClass('Humanoid')
 					local Head = npc:FindFirstChild('Head')
 					local Root = npc:FindFirstChild('HumanoidRootPart') or npc:FindFirstChild('Torso') or npc.PrimaryPart
@@ -2660,21 +2669,21 @@ local function UpdatePlayerData()
 
 					Data.Instances['Box'] = Data.Instances['Box'] or LineBox:Create{Thickness = 4};
 					Data.Instances['NameTag'] = Data.Instances['NameTag'] or NewDrawing'Text'{
-						Size			= Options.TextSize.Value;
+						Size			= npcTextSize;
 						Center			= true;
 						Outline			= Options.TextOutline.Value;
 						OutlineOpacity	= 1;
 						Visible			= true;
 					};
 					Data.Instances['DistanceHealthTag'] = Data.Instances['DistanceHealthTag'] or NewDrawing'Text'{
-						Size			= Options.TextSize.Value - 1;
+						Size			= math.max(10, npcTextSize - 1);
 						Center			= true;
 						Outline			= Options.TextOutline.Value;
 						OutlineOpacity	= 1;
 						Visible			= true;
 					};
 					Data.Instances['InfoTag'] = Data.Instances['InfoTag'] or NewDrawing'Text'{
-						Size			= Options.TextSize.Value - 2;
+						Size			= math.max(10, npcTextSize - 2);
 						Center			= true;
 						Outline			= Options.TextOutline.Value;
 						OutlineOpacity	= 1;
@@ -2689,10 +2698,11 @@ local function UpdatePlayerData()
 					local Pass, Distance = CheckDistanceNPC(Head);
 					if Pass then
 						local ScreenPosition, Vis = WorldToViewport(Head.Position);
-						local Color = Rainbow and Color3.fromHSV(tick() * 128 % 255/255, 1, 1) or Color3.fromRGB(255, 180, 50);
+						-- NPCs always solid red (no rainbow)
+						local Color = Color3.fromRGB(255, 60, 60);
 
 						if ScreenPosition.Z > 0 then
-							local ScreenPositionUpper = WorldToViewport((Root:GetRenderCFrame() * CFrame.new(0, Head.Size.Y + Root.Size.Y + (Options.YOffset.Value / 25), 0)).Position);
+							local ScreenPositionUpper = WorldToViewport((Root:GetRenderCFrame() * CFrame.new(0, Head.Size.Y + Root.Size.Y + (100 / 25), 0)).Position);
 							local Scale = Head.Size.Y / 2;
 							local basePos = V2New(ScreenPositionUpper.X, ScreenPositionUpper.Y);
 							local yCursor = 0;
@@ -2701,7 +2711,7 @@ local function UpdatePlayerData()
 							if Options.ShowName.Value then
 								NameTag.Visible = true;
 								NameTag.Text = CleanNPCName(npc.Name);
-								NameTag.Size = Options.TextSize.Value;
+								NameTag.Size = npcTextSize;
 								NameTag.Outline = Options.TextOutline.Value;
 								NameTag.Position = basePos - V2New(0, NameTag.TextBounds.Y);
 								NameTag.Color = Color;
@@ -2713,10 +2723,10 @@ local function UpdatePlayerData()
 								yCursor = basePos.Y;
 							end
 
-							-- LINE 2: Distance + HP
+							-- LINE 2: Distance + HP (whole numbers only)
 							if Options.ShowDistance.Value or Options.ShowHealth.Value then
 								DistanceTag.Visible = true;
-								DistanceTag.Size = Options.TextSize.Value - 1;
+								DistanceTag.Size = math.max(10, npcTextSize - 1);
 								DistanceTag.Outline = Options.TextOutline.Value;
 								DistanceTag.Color = Color3.new(1, 1, 1);
 								DistanceTag.Transparency = 0.85;
@@ -2726,7 +2736,7 @@ local function UpdatePlayerData()
 									Str = Str .. Format('[%d] ', math.floor(Distance));
 								end
 								if Options.ShowHealth.Value then
-									Str = Str .. Format('[%s/%s] [%s%%]', FormatNumber(Humanoid.Health), FormatNumber(Humanoid.MaxHealth), math.floor(Humanoid.Health / Humanoid.MaxHealth * 100));
+									Str = Str .. Format('[%s/%s] [%s%%]', FormatNumber(Humanoid.Health), FormatNumber(Humanoid.MaxHealth), math.floor(Humanoid.Health / math.max(Humanoid.MaxHealth, 1) * 100));
 								end
 								DistanceTag.Text = Str;
 								DistanceTag.OutlineColor = Color3.new(0.05, 0.05, 0.05);
@@ -2742,7 +2752,7 @@ local function UpdatePlayerData()
 								if infoStr ~= '' then
 									InfoTag.Visible = true;
 									InfoTag.Text = infoStr;
-									InfoTag.Size = Options.TextSize.Value - 2;
+									InfoTag.Size = math.max(10, npcTextSize - 2);
 									InfoTag.Outline = Options.TextOutline.Value;
 									InfoTag.Color = Color3.new(1, 1, 1);
 									InfoTag.Transparency = 0.85;
@@ -2802,8 +2812,11 @@ local function Update()
 				-- still a player in the game, keep entry (visibility handled in UpdatePlayerData)
 			elseif isNPCKey then
 				local inst = v.Instance
+				-- remove if NPCs disabled, instance gone, OR this model is actually a Player character
 				if not Options.ShowNPCs.Value or inst == nil or inst.Parent == nil then
 					shouldRemove = true
+				elseif inst and Players:GetPlayerFromCharacter(inst) then
+					shouldRemove = true -- was drawn as NPC but is a real player
 				end
 			elseif not v.DontDelete then
 				-- orphaned player-style key (player left)
